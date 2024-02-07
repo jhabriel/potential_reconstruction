@@ -7,6 +7,8 @@ import mdamr as amr
 
 pickle_mdg = False
 
+pp.meshing.subdomains_to_mdg
+
 # %% Setup and run the model
 # Parameters
 solid_constants = pp.SolidConstants(manu_incomp_solid)
