@@ -33,7 +33,7 @@ manu_incomp_fluid: dict[str, number] = {
 
 manu_incomp_solid: dict[str, number] = {
     "residual_aperture": 1.0,  # (**)
-    "permeability": 1.0,  # (**)
+    #"permeability": 1.0,  # (**)
 }
 
 
@@ -331,10 +331,30 @@ class SolutionStrategy(
         assert self.fluid.density() == 1
         assert self.fluid.viscosity() == 1
         assert self.fluid.compressibility() == 0
-        assert self.solid.permeability() == 1
+        #assert self.solid.permeability() == 1
 
         # Instantiate exact solution object after materials have been set
         self.exact_sol = ExactSolution()
+
+    def set_discretization_parameters(self) -> None:
+        """Set anisotropic permeability"""
+        super().set_discretization_parameters()
+
+        # Retrieve subdomain and data dictionary
+        sd = self.mdg.subdomains()[0]
+        d = self.mdg.subdomain_data(sd)
+
+        # Declare permeability matrix.
+        nc = sd.num_cells
+        kxx = 7.7500 * np.ones(nc)
+        kyy = 3.2500 * np.ones(nc)
+        kxy = 3.8971 * np.ones(nc)
+
+        d[pp.PARAMETERS][self.darcy_keyword]["second_order_tensor"] = pp.SecondOrderTensor(
+            kxx=kxx,
+            kyy=kyy,
+            kxy=kxy,
+        )
 
     def after_simulation(self) -> None:
         """Method to be called after the simulation has finished."""
@@ -371,9 +391,14 @@ material_constants = {"solid": solid_constants, "fluid": fluid_constants}
 params = {
     "material_constants": material_constants,
     "plot_results": True,
-    "mesh_size": 0.1,
+    "mesh_size": 0.05,
     "dim": 2,
     "domain_size": np.array([1.0, 1.0]),
+    "mesh_type": "irregular_structured",
 }
 model = ManufacturedModel(params=params)
 pp.run_time_dependent_model(model, {})
+
+#%% Analysis
+sd = model.mdg.subdomains()[0]
+d = model.mdg.subdomain_data(sd)

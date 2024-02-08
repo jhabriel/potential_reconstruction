@@ -16,10 +16,10 @@ class ExactSolution:
 
         # Symbolic variables
         x, y = sym.symbols("x y")
-        K_xx = 1 # 7.7500
-        K_xy = 0 # 3.8971
-        K_yx = 0 # K_xy
-        K_yy = 1 # 3.2500
+        K_xx = 7.7500
+        K_xy = 3.8971
+        K_yx = K_xy
+        K_yy = 3.2500
 
         # Pressure
         p = sym.cos(2 * sym.pi * x) * sym.cos(2 * sym.pi * y)
@@ -140,21 +140,3 @@ class ExactSolution:
         integral = int_method.integrate(integrand, elements)
 
         return integral
-
-
-#%%
-# from grids import MeshGenerator
-# meshgen = MeshGenerator(
-#     domain=np.array([1.0, 1.0]),
-#     mesh_size=0.05,
-#     dim=2,
-# )
-# sd = meshgen.unstructured_simplex()
-#
-# ex = ExactSolution()
-# p_true = ex.pressure(sd)
-#
-# pp.plot_grid(sd, p_true, plot_2d=True)
-#
-# #%%
-# pp.plot_grid(sd, ex.integrated_source(sd), plot_2d=True)
