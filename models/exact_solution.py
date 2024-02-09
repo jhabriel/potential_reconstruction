@@ -1,11 +1,10 @@
 """Module containing the exact solution."""
 
+import mdamr as amr
 import numpy as np
 import porepy as pp
 import quadpy
 import sympy as sym
-
-import mdamr as amr
 
 
 class ExactSolution:
@@ -29,8 +28,8 @@ class ExactSolution:
         gradp_y = sym.diff(p, y)
 
         # Darcy velocity
-        q_x = - K_xx * gradp_x - K_xy * gradp_y
-        q_y = - K_yx * gradp_x - K_yy * gradp_y
+        q_x = -K_xx * gradp_x - K_xy * gradp_y
+        q_y = -K_yx * gradp_x - K_yy * gradp_y
 
         # Divergence of velocity
         div_q = sym.diff(q_x, x) + sym.diff(q_y, y)
@@ -91,7 +90,6 @@ class ExactSolution:
         q = qx_fun(fc[0], fc[1]) * fn[0] + qy_fun(fc[0], fc[1]) * fn[1]
 
         return q
-
 
     def boundary_values(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         """Exact pressure at the boundary faces.

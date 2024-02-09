@@ -8,16 +8,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+import mdamr
 import numpy as np
 import porepy as pp
 import porepy.models.geometry
+import quadpy
+import sympy as sym
+from mdamr.estimates.pressure_reconstruction import (keilegavlen_p1,
+                                                     patchwise_p1)
 from porepy.applications.convergence_analysis import ConvergenceAnalysis
 from porepy.fracs.fracture_network_3d import FractureNetwork3d
 from porepy.utils.examples_utils import VerificationUtils
 from porepy.viz.data_saving_model_mixin import VerificationDataSaving
-from grids import MeshGenerator
 
 from exact_solution import ExactSolution
+from grids import MeshGenerator
 
 # PorePy typings
 number = pp.number
@@ -33,13 +38,132 @@ manu_incomp_fluid: dict[str, number] = {
 
 manu_incomp_solid: dict[str, number] = {
     "residual_aperture": 1.0,  # (**)
-    #"permeability": 1.0,  # (**)
 }
 
 
-# -----> Data-saving
+class Postprocessing:
+    """
+    Mixin for various postprocessing steps, including flux extension using RT0,
+    potential reconstructions, and error computation.
+    """
+
+    mdg: pp.MixedDimensionalGrid
+    pressure: Callable
+    darcy_flux: Callable
+    equation_system: pp.EquationSystem
+    exact_sol: ExactSolution
+
+    def postprocess_solution(self):
+        self.transfer_solution()
+        self.extend_normal_fluxes()
+        self.reconstruct_potentials()
+        self.compute_errors()
+
+    def transfer_solution(self):
+        """Evaluate and transfer FV solutions to data dictionary."""
+
+        for sd, d in self.mdg.subdomains(return_data=True):
+            # Create key if it does not exist
+            if d.get("estimates") is None:
+                d["estimates"] = {}
+
+            # Save FV P0 pressures
+            d["estimates"]["fv_sd_pressure"] = self.pressure([sd]).value(
+                self.equation_system
+            )
+
+            # Save FV P0 normal fluxes
+            d["estimates"]["fv_sd_flux"] = self.darcy_flux([sd]).value(
+                self.equation_system
+            )
+
+    def extend_normal_fluxes(self) -> None:
+        """Extend FV fluxes using RT0-basis functions."""
+        mdamr.extend_fv_fluxes(self.mdg)
+
+    def reconstruct_potentials(self) -> None:
+        """Reconstruct potentials using three different techniques."""
+
+        # Retrieve subdomain grid and its dictionary
+        sd = self.mdg.subdomains()[0]
+        sd_data = self.mdg.subdomain_data(sd)
+
+        # Retrieve boundary grid and its dictionary
+        bg = self.mdg.subdomain_to_boundary_grid(sd)
+        bg_data = self.mdg.boundary_grid_data(bg)
+
+        # Method 1: Average-based reconstruction
+        point_val, point_coo = patchwise_p1(sd, sd_data, bg_data)
+        sd_data["estimates"]["p_recon_avg_p1"] = mdamr.utils.interpolate_p1(
+            point_val, point_coo
+        )
+
+        # Method 2: RT0-based reconstruction
+        point_val, point_coo = keilegavlen_p1(sd, sd_data, bg_data)
+        sd_data["estimates"]["p_recon_rt0_p1"] = mdamr.utils.interpolate_p1(
+            point_val, point_coo
+        )
+
+        # Method 3: Local Neumann problem-based reconstruction
+        # TODO: Implement the method
+        """
+        point_val, point_coo = vohralik_p2(sd, sd_data, bg_data)
+        sd_data["estimates"]["p_recon_neu_p2"] = (
+            mdamr.utils.interpolate_p2(point_val, point_coo)
+        )
+        """
+
+    def compute_errors(self) -> None:
+        """Compute errors for the different reconstruction schemes."""
+
+        # Retrieve subdomain and data
+        sd = self.mdg.subdomains()[0]
+        d = self.mdg.subdomain_data(sd)
+
+        # Potential reconstruction methods
+        reconstructions = ["avg_p1", "rt0_p1", "neu_p2"]
+
+        # Exact pressure and pressure gradients
+        x, y = sym.symbols("x y")
+        ex = ExactSolution()
+        gradp = [sym.diff(ex.p, x), sym.diff(ex.p, y)]
+        gradp_fun = [sym.lambdify((x, y), grad, "numpy") for grad in gradp]
+
+        # Obtain elements and declare integration method
+        method = quadpy.t2.get_good_scheme(10)
+        elements = mdamr.utils.get_quadpy_elements(sd)
+
+        for reconstruction in reconstructions:
+            if reconstruction == "neu_p2":
+                continue
+
+            # Retrieve reconstructed pressures
+            recon_p = d["estimates"]["p_recon_" + reconstruction]
+            pr = mdamr.utils.poly2col(recon_p)
+
+            def integrand(x):
+                # Exact pressure gradient in x and y
+                gradp_exact_x = gradp_fun[0](x[0], x[1])
+                gradp_exact_y = gradp_fun[1](x[0], x[1])
+
+                # Reconstructed pressure gradient in x and y
+                gradp_recon_x = pr[0] * np.ones_like(x[0])
+                gradp_recon_y = pr[1] * np.ones_like(x[1])
+
+                # Integral in x and y
+                int_x = (gradp_exact_x - gradp_recon_x) ** 2
+                int_y = (gradp_exact_y - gradp_recon_y) ** 2
+
+                return int_x + int_y
+
+            integral = method.integrate(integrand, elements)
+
+            # Save error
+            d["estimates"]["error_" + reconstruction] = integral.sum() ** 0.5
+
+
 @dataclass
-class ManuIncompSaveData:
+class SaveData:
     """Data class to save relevant results from the verification setup."""
 
     approx_flux: np.ndarray
@@ -79,7 +203,7 @@ class DataSaving(VerificationDataSaving):
 
     """
 
-    def collect_data(self) -> ManuIncompSaveData:
+    def collect_data(self) -> SaveData:
         """Collect data from the verification setup.
 
         Returns:
@@ -116,7 +240,7 @@ class DataSaving(VerificationDataSaving):
         )
 
         # Store collected data in data class
-        collected_data = ManuIncompSaveData(
+        collected_data = SaveData(
             exact_pressure=exact_pressure,
             exact_flux=exact_flux,
             approx_pressure=approx_pressure,
@@ -134,7 +258,7 @@ class Utils(VerificationUtils):
     mdg: pp.MixedDimensionalGrid
     """Mixed-dimensional grid."""
 
-    results: list[ManuIncompSaveData]
+    results: list[SaveData]
     """List of ManuIncompSaveData objects."""
 
     def plot_results(self) -> None:
@@ -237,7 +361,6 @@ class BoundaryConditions(pp.fluid_mass_balance.BoundaryConditionsSinglePhaseFlow
         boundary_faces = self.domain_boundary_sides(sd).all_bf
         return pp.BoundaryCondition(sd, boundary_faces, "dir")
 
-
     def bc_values_pressure(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         """Analytical boundary condition values for Darcy flux.
 
@@ -283,9 +406,7 @@ class BalanceEquation(pp.fluid_mass_balance.MassBalanceEquations):
         return source
 
 
-class SolutionStrategy(
-    pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow
-):
+class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
     """Modified solution strategy for the verification setup."""
 
     mdg: pp.MixedDimensionalGrid
@@ -303,10 +424,16 @@ class SolutionStrategy(
 
     """
 
+    postprocess_solution: Callable
+    """Postprocess solutions to reconstruct potentials and compute errors. Method 
+    provided by the mixin class :class:`Postprocessing`.
+    
+    """
+
     solid: pp.SolidConstants
     """Object containing the solid constants."""
 
-    results: list[ManuIncompSaveData]
+    results: list[SaveData]
     """List of SaveData objects."""
 
     error_estimates_data_saving: Callable
@@ -320,7 +447,7 @@ class SolutionStrategy(
         self.exact_sol: ExactSolution
         """Exact solution object."""
 
-        self.results: list[ManuIncompSaveData] = []
+        self.results: list[SaveData] = []
         """Results object that stores exact and approximated solutions and errors."""
 
     def set_materials(self):
@@ -331,7 +458,6 @@ class SolutionStrategy(
         assert self.fluid.density() == 1
         assert self.fluid.viscosity() == 1
         assert self.fluid.compressibility() == 0
-        #assert self.solid.permeability() == 1
 
         # Instantiate exact solution object after materials have been set
         self.exact_sol = ExactSolution()
@@ -343,6 +469,7 @@ class SolutionStrategy(
         # Retrieve subdomain and data dictionary
         sd = self.mdg.subdomains()[0]
         d = self.mdg.subdomain_data(sd)
+        kw = self.darcy_keyword
 
         # Declare permeability matrix.
         nc = sd.num_cells
@@ -350,7 +477,7 @@ class SolutionStrategy(
         kyy = 3.2500 * np.ones(nc)
         kxy = 3.8971 * np.ones(nc)
 
-        d[pp.PARAMETERS][self.darcy_keyword]["second_order_tensor"] = pp.SecondOrderTensor(
+        d[pp.PARAMETERS][kw]["second_order_tensor"] = pp.SecondOrderTensor(
             kxx=kxx,
             kyy=kyy,
             kxy=kxy,
@@ -358,8 +485,11 @@ class SolutionStrategy(
 
     def after_simulation(self) -> None:
         """Method to be called after the simulation has finished."""
+        # Plot solutions
         if self.params.get("plot_results", False):
             self.plot_results()
+        # Postprocess solutions
+        self.postprocess_solution()
 
     def _is_nonlinear_problem(self) -> bool:
         """The problem is linear."""
@@ -372,6 +502,7 @@ class SolutionStrategy(
 
 # -----> Mixer
 class ManufacturedModel(  # type: ignore[misc]
+    Postprocessing,
     Geometry,
     BalanceEquation,
     BoundaryConditions,
@@ -384,7 +515,8 @@ class ManufacturedModel(  # type: ignore[misc]
     Mixer class for the 2d incompressible flow setup with a single fracture.
     """
 
-#%% Runner
+
+# %% Runner
 solid_constants = pp.SolidConstants(manu_incomp_solid)
 fluid_constants = pp.FluidConstants(manu_incomp_fluid)
 material_constants = {"solid": solid_constants, "fluid": fluid_constants}
@@ -394,11 +526,11 @@ params = {
     "mesh_size": 0.05,
     "dim": 2,
     "domain_size": np.array([1.0, 1.0]),
-    "mesh_type": "irregular_structured",
+    "mesh_type": "perturbed_unstructured",
 }
 model = ManufacturedModel(params=params)
 pp.run_time_dependent_model(model, {})
 
-#%% Analysis
+# %% Analysis
 sd = model.mdg.subdomains()[0]
 d = model.mdg.subdomain_data(sd)
