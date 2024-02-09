@@ -53,7 +53,14 @@ class Postprocessing:
     equation_system: pp.EquationSystem
     exact_sol: ExactSolution
 
-    def postprocess_solution(self):
+    def postprocess_solution(self) -> None:
+        """Caller for postprocessing methods.
+
+        These methods include: Transferring of solutions to the data dictionary,
+        extension of normal finite volume fluxes, reconstruction of potentials using
+        different techniques, and the computation of errors.
+
+        """
         self.transfer_solution()
         self.extend_normal_fluxes()
         self.reconstruct_potentials()
@@ -92,13 +99,13 @@ class Postprocessing:
         bg = self.mdg.subdomain_to_boundary_grid(sd)
         bg_data = self.mdg.boundary_grid_data(bg)
 
-        # Method 1: Average-based reconstruction
+        # Method 1: Average-based P1 reconstruction
         point_val, point_coo = patchwise_p1(sd, sd_data, bg_data)
         sd_data["estimates"]["p_recon_avg_p1"] = mdamr.utils.interpolate_p1(
             point_val, point_coo
         )
 
-        # Method 2: RT0-based reconstruction
+        # Method 2: RT0-based P1 reconstruction
         point_val, point_coo = keilegavlen_p1(sd, sd_data, bg_data)
         sd_data["estimates"]["p_recon_rt0_p1"] = mdamr.utils.interpolate_p1(
             point_val, point_coo
@@ -166,42 +173,21 @@ class Postprocessing:
 class SaveData:
     """Data class to save relevant results from the verification setup."""
 
-    approx_flux: np.ndarray
-    """Numerical flux."""
+    error_h1_avg: float
+    """Error in the H1 broken norm obtained with average of cell-centered potentials."""
 
-    approx_pressure: np.ndarray
-    """Numerical pressure."""
+    error_h1_rt0: float
+    """Error in the H1 broken norm obtained with RT0-based reconstruction."""
 
-    error_pressure: number
-    """L2-discrete relative error for the pressure."""
-
-    error_flux: number
-    """L2-discrete relative error for the flux."""
-
-    exact_pressure: np.ndarray
-    """Exact pressure."""
-
-    exact_flux: np.ndarray
-    """Exact flux."""
+    # error_l2_avg: float
+    # """Error in the L2 norm obtained with average of cell-centered potentials."""
+    #
+    # error_l2_rt0: float
+    # """Error in the L2 norm obtained with RT0-based reconstruction."""
 
 
 class DataSaving(VerificationDataSaving):
     """Mixin class to save relevant data."""
-
-    darcy_flux: Callable[[list[pp.Grid]], pp.ad.Operator]
-    """Method that returns the Darcy fluxes in the form of an Ad operator. Usually
-    provided by the mixin class :class:`porepy.models.constitutive_laws.DarcysLaw`.
-
-    """
-
-    exact_sol: ExactSolution
-    """Exact solution object."""
-
-    pressure: Callable[[list[pp.Grid]], pp.ad.MixedDimensionalVariable]
-    """Pressure variable. Normally defined in a mixin instance of
-    :class:`~porepy.models.fluid_mass_balance.VariablesSinglePhaseFlow`.
-
-    """
 
     def collect_data(self) -> SaveData:
         """Collect data from the verification setup.
@@ -212,41 +198,12 @@ class DataSaving(VerificationDataSaving):
         """
 
         sd: pp.Grid = self.mdg.subdomains()[0]
-        exact_sol: ExactSolution = self.exact_sol
-
-        # Collect data
-        exact_pressure = exact_sol.pressure(sd)
-        pressure_ad = self.pressure([sd])
-        approx_pressure = pressure_ad.value(self.equation_system)
-        error_pressure = ConvergenceAnalysis.l2_error(
-            grid=sd,
-            true_array=exact_pressure,
-            approx_array=approx_pressure,
-            is_scalar=True,
-            is_cc=True,
-            relative=True,
-        )
-
-        exact_flux = exact_sol.flux(sd)
-        flux_ad = self.darcy_flux([sd])
-        approx_flux = flux_ad.value(self.equation_system)
-        error_flux = ConvergenceAnalysis.l2_error(
-            grid=sd,
-            true_array=exact_flux,
-            approx_array=approx_flux,
-            is_scalar=True,
-            is_cc=False,
-            relative=True,
-        )
+        d: dict = self.mdg.subdomain_data(sd)
 
         # Store collected data in data class
         collected_data = SaveData(
-            exact_pressure=exact_pressure,
-            exact_flux=exact_flux,
-            approx_pressure=approx_pressure,
-            approx_flux=approx_flux,
-            error_pressure=error_pressure,
-            error_flux=error_flux,
+            error_h1_rt0=d["estimates"]["error_rt0_p1"],
+            error_h1_avg=d["estimates"]["error_avg_p1"],
         )
 
         return collected_data
@@ -268,8 +225,9 @@ class Utils(VerificationUtils):
     def _plot_pressure(self) -> None:
         """Plots exact and numerical pressures in the matrix."""
         sd = self.mdg.subdomains()[0]
-        p_num = self.results[-1].approx_pressure
-        p_ex = self.results[-1].exact_pressure
+        ex = ExactSolution()
+        p_ex = ex.pressure(sd)
+        p_num = self.pressure([sd]).value(self.equation_system)
         pp.plot_grid(
             sd, p_ex, plot_2d=True, linewidth=0, title="Matrix pressure (Exact)"
         )
@@ -294,7 +252,7 @@ class Geometry(porepy.models.geometry.ModelGeometry):
         """
         # Retrieve information from data parameter
         domain_size: np.ndarray = self.params.get("domain_size", np.array([1.0, 1.0]))
-        mesh_size: float = self.params.get("mesh_size", 0.1)
+        mesh_size: float = self.params["meshing_arguments"].get("cell_size", 0.1)
         dim: int = self.params.get("dim", 2)
 
         # Set domain
@@ -483,13 +441,23 @@ class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
             kxy=kxy,
         )
 
+    def after_nonlinear_convergence(
+        self, solution: np.ndarray, errors: float, iteration_counter: int
+    ) -> None:
+        solution = self.equation_system.get_variable_values(iterate_index=0)
+        self.equation_system.shift_time_step_values()
+        self.equation_system.set_variable_values(
+            values=solution, time_step_index=0, additive=False
+        )
+        self.convergence_status = True
+        self.postprocess_solution()
+        self.save_data_time_step()
+
     def after_simulation(self) -> None:
         """Method to be called after the simulation has finished."""
         # Plot solutions
         if self.params.get("plot_results", False):
             self.plot_results()
-        # Postprocess solutions
-        self.postprocess_solution()
 
     def _is_nonlinear_problem(self) -> bool:
         """The problem is linear."""
@@ -502,13 +470,13 @@ class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
 
 # -----> Mixer
 class ManufacturedModel(  # type: ignore[misc]
-    Postprocessing,
     Geometry,
     BalanceEquation,
     BoundaryConditions,
     SolutionStrategy,
     Utils,
     DataSaving,
+    Postprocessing,
     pp.fluid_mass_balance.SinglePhaseFlow,
 ):
     """
@@ -517,20 +485,20 @@ class ManufacturedModel(  # type: ignore[misc]
 
 
 # %% Runner
-solid_constants = pp.SolidConstants(manu_incomp_solid)
-fluid_constants = pp.FluidConstants(manu_incomp_fluid)
-material_constants = {"solid": solid_constants, "fluid": fluid_constants}
-params = {
-    "material_constants": material_constants,
-    "plot_results": True,
-    "mesh_size": 0.05,
-    "dim": 2,
-    "domain_size": np.array([1.0, 1.0]),
-    "mesh_type": "perturbed_unstructured",
-}
-model = ManufacturedModel(params=params)
-pp.run_time_dependent_model(model, {})
-
-# %% Analysis
-sd = model.mdg.subdomains()[0]
-d = model.mdg.subdomain_data(sd)
+# solid_constants = pp.SolidConstants(manu_incomp_solid)
+# fluid_constants = pp.FluidConstants(manu_incomp_fluid)
+# material_constants = {"solid": solid_constants, "fluid": fluid_constants}
+# params = {
+#     "material_constants": material_constants,
+#     "plot_results": False,
+#     "mesh_size": 0.05,
+#     "dim": 2,
+#     "domain_size": np.array([1.0, 1.0]),
+#     "mesh_type": "perturbed_unstructured",
+# }
+# model = ManufacturedModel(params=params)
+# pp.run_time_dependent_model(model, {})
+#
+# # %% Analysis
+# sd = model.mdg.subdomains()[0]
+# d = model.mdg.subdomain_data(sd)
