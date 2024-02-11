@@ -14,9 +14,9 @@ import porepy as pp
 import porepy.models.geometry
 import quadpy
 import sympy as sym
-from mdamr.estimates.pressure_reconstruction import (keilegavlen_p1,
-                                                     patchwise_p1)
-from porepy.applications.convergence_analysis import ConvergenceAnalysis
+from mdamr.estimates.pressure_reconstruction import (
+    keilegavlen_p1, patchwise_p1, vohralik_p2
+)
 from porepy.fracs.fracture_network_3d import FractureNetwork3d
 from porepy.utils.examples_utils import VerificationUtils
 from porepy.viz.data_saving_model_mixin import VerificationDataSaving
@@ -99,26 +99,23 @@ class Postprocessing:
         bg = self.mdg.subdomain_to_boundary_grid(sd)
         bg_data = self.mdg.boundary_grid_data(bg)
 
-        # Method 1: Average-based P1 reconstruction
+        # Method 1: Cochez-Dhondt
         point_val, point_coo = patchwise_p1(sd, sd_data, bg_data)
         sd_data["estimates"]["p_recon_avg_p1"] = mdamr.utils.interpolate_p1(
             point_val, point_coo
         )
 
-        # Method 2: RT0-based P1 reconstruction
+        # Method 2: Keilegavlen-Varela
         point_val, point_coo = keilegavlen_p1(sd, sd_data, bg_data)
         sd_data["estimates"]["p_recon_rt0_p1"] = mdamr.utils.interpolate_p1(
             point_val, point_coo
         )
 
-        # Method 3: Local Neumann problem-based reconstruction
-        # TODO: Implement the method
-        """
+        # Method 3: Vohralik-Ern
         point_val, point_coo = vohralik_p2(sd, sd_data, bg_data)
         sd_data["estimates"]["p_recon_neu_p2"] = (
             mdamr.utils.interpolate_p2(point_val, point_coo)
         )
-        """
 
     def compute_errors(self) -> None:
         """Compute errors for the different reconstruction schemes."""
@@ -128,11 +125,13 @@ class Postprocessing:
         d = self.mdg.subdomain_data(sd)
 
         # Potential reconstruction methods
-        reconstructions = ["avg_p1", "rt0_p1", "neu_p2"]
+        reconstructions = ["avg_p1", "rt0_p1", "neu_p2", "post_p2"]
 
         # Exact pressure and pressure gradients
         x, y = sym.symbols("x y")
         ex = ExactSolution()
+        p = ex.p
+        p_fun = sym.lambdify((x, y), p, "numpy")
         gradp = [sym.diff(ex.p, x), sym.diff(ex.p, y)]
         gradp_fun = [sym.lambdify((x, y), grad, "numpy") for grad in gradp]
 
@@ -141,21 +140,26 @@ class Postprocessing:
         elements = mdamr.utils.get_quadpy_elements(sd)
 
         for reconstruction in reconstructions:
-            if reconstruction == "neu_p2":
-                continue
 
             # Retrieve reconstructed pressures
             recon_p = d["estimates"]["p_recon_" + reconstruction]
             pr = mdamr.utils.poly2col(recon_p)
 
-            def integrand(x):
+            def integrand_h1_error(x):
                 # Exact pressure gradient in x and y
                 gradp_exact_x = gradp_fun[0](x[0], x[1])
                 gradp_exact_y = gradp_fun[1](x[0], x[1])
 
                 # Reconstructed pressure gradient in x and y
-                gradp_recon_x = pr[0] * np.ones_like(x[0])
-                gradp_recon_y = pr[1] * np.ones_like(x[1])
+                ones = np.ones_like(x[0])
+                if reconstruction in ["avg_p1", "rt0_p1"]:  # P1(K) methods
+                    gradp_recon_x = pr[0] * ones
+                    gradp_recon_y = pr[1] * ones
+                elif reconstruction in ["neu_p2", "post_p2"]:  # P2(K) methods
+                    gradp_recon_x = 2 * pr[0] * x[0] + pr[1] * x[1] + pr[2] * ones
+                    gradp_recon_y = pr[1] * x[0] + 2 * pr[3] * x[1] + pr[4] * ones
+                else:
+                    raise NotImplementedError()
 
                 # Integral in x and y
                 int_x = (gradp_exact_x - gradp_recon_x) ** 2
@@ -163,21 +167,60 @@ class Postprocessing:
 
                 return int_x + int_y
 
-            integral = method.integrate(integrand, elements)
+            integral = method.integrate(integrand_h1_error, elements)
+            d["estimates"]["local_error_h1_" + reconstruction] = integral
+            d["estimates"]["error_h1_" + reconstruction] = integral.sum() ** 0.5
 
-            # Save error
-            d["estimates"]["error_" + reconstruction] = integral.sum() ** 0.5
+            def integrand_l2_error(x):
+                # Exact pressure
+                p_exact = p_fun(x[0], x[1])
+                # Reconstructed pressures
+                ones = np.ones_like(x[0])
+                if reconstruction in ["avg_p1", "rt0_p1"]:  # P1(K) methods
+                    p_recon = pr[0] * x[0] + pr[1] * x[1] + pr[2] * ones
+                elif reconstruction in ["neu_p2", "post_p2"]:  # P2(K) methods
+                    p_recon = (
+                        pr[0] * x[0] ** 2
+                        + pr[1] * x[0] * x[1]
+                        + pr[2] * x[0]
+                        + pr[3] * x[1] ** 2
+                        + pr[4] * x[1]
+                        + pr[5]
+                    )
+                return (p_exact - p_recon) ** 2
+
+            integral = method.integrate(integrand_l2_error, elements)
+            d["estimates"]["local_error_l2" + reconstruction] = integral
+            d["estimates"]["error_l2_" + reconstruction] = integral.sum() ** 0.5
 
 
 @dataclass
 class SaveData:
     """Data class to save relevant results from the verification setup."""
 
+    error_l2_avg: float
+    """Error in the L2 broken norm obtained with average of cell-centered potentials."""
+
+    error_l2_rt0: float
+    """Error in the L2 broken norm obtained with RT0-based reconstruction."""
+
+    error_l2_neu: float
+    """Error in the L2 broken norm obtained by solving a local Neumann problem."""
+
+    error_l2_postp: float
+    """Error in the L2 broken norm for the post-processed potential."""
+
     error_h1_avg: float
     """Error in the H1 broken norm obtained with average of cell-centered potentials."""
 
     error_h1_rt0: float
     """Error in the H1 broken norm obtained with RT0-based reconstruction."""
+
+    error_h1_neu: float
+    """Error in the H1 broken norm obtained by solving a local Neumann problem."""
+
+    error_h1_postp: float
+    """Error in the H1 broken norm for the post-processed potential."""
 
     # error_l2_avg: float
     # """Error in the L2 norm obtained with average of cell-centered potentials."""
@@ -202,8 +245,14 @@ class DataSaving(VerificationDataSaving):
 
         # Store collected data in data class
         collected_data = SaveData(
-            error_h1_rt0=d["estimates"]["error_rt0_p1"],
-            error_h1_avg=d["estimates"]["error_avg_p1"],
+            error_h1_rt0=d["estimates"]["error_h1_rt0_p1"],
+            error_h1_avg=d["estimates"]["error_h1_avg_p1"],
+            error_h1_neu=d["estimates"]["error_h1_neu_p2"],
+            error_h1_postp=d["estimates"]["error_h1_post_p2"],
+            error_l2_rt0=d["estimates"]["error_l2_rt0_p1"],
+            error_l2_avg=d["estimates"]["error_l2_avg_p1"],
+            error_l2_neu=d["estimates"]["error_l2_neu_p2"],
+            error_l2_postp=d["estimates"]["error_l2_post_p2"],
         )
 
         return collected_data
@@ -222,18 +271,68 @@ class Utils(VerificationUtils):
         """Plotting results."""
         self._plot_pressure()
 
+    def plot_errors(self) -> None:
+        """Plotting (square) of local errors."""
+        reconstructions = ["avg_p1", "rt0_p1", "neu_p2", "post_p2"]
+        sd = self.mdg.subdomains()[0]
+        d = self.mdg.subdomain_data(sd)
+        for reconstruction in reconstructions:
+            pp.plot_grid(
+                sd,
+                d["estimates"]["local_error" + reconstruction],
+                plot_2d=True,
+                linewidth=0,
+                title=f"Error {reconstruction}",
+            )
+
     def _plot_pressure(self) -> None:
         """Plots exact and numerical pressures in the matrix."""
         sd = self.mdg.subdomains()[0]
+        d = self.mdg.subdomain_data(sd)
+        cc = sd.cell_centers
         ex = ExactSolution()
+
+        # Exact pressure
         p_ex = ex.pressure(sd)
-        p_num = self.pressure([sd]).value(self.equation_system)
-        pp.plot_grid(
-            sd, p_ex, plot_2d=True, linewidth=0, title="Matrix pressure (Exact)"
+        pp.plot_grid(sd, p_ex, plot_2d=True, linewidth=0, title="Exact")
+
+        # P0 pressure
+        p0 = self.pressure([sd]).value(self.equation_system)
+        pp.plot_grid(sd, p0, plot_2d=True, linewidth=0, title="P0")
+
+        # AVG_P1 pressure
+        p_avg = d["estimates"]["p_recon_avg_p1"]
+        cc_p_avg = p_avg[:, 0] * cc[0] + p_avg[:, 1] * cc[1] + p_avg[:, 2]
+        pp.plot_grid(sd, cc_p_avg, plot_2d=True, linewidth=0, title="AVG P1")
+
+        # RTO_P1 pressure
+        p_rt0 = d["estimates"]["p_recon_rt0_p1"]
+        cc_p_rt0 = p_rt0[:, 0] * cc[0] + p_rt0[:, 1] * cc[1] + p_rt0[:, 2]
+        pp.plot_grid(sd, cc_p_rt0,  plot_2d=True, linewidth=0, title="RT0 P1")
+
+        # NEU_P2 pressure
+        p_neu = d["estimates"]["p_recon_neu_p2"]
+        cc_p_neu = (
+            p_neu[:, 0] * cc[0] ** 2
+            + p_neu[:, 1] * cc[0] * cc[1]
+            + p_neu[:, 2] * cc[0]
+            + p_neu[:, 3] * cc[1] ** 2
+            + p_neu[:, 4] * cc[1]
+            + p_neu[:, 5]
         )
-        pp.plot_grid(
-            sd, p_num, plot_2d=True, linewidth=0, title="Matrix pressure (MPFA)"
+        pp.plot_grid(sd, cc_p_neu, plot_2d=True, linewidth=0, title="NEU P2")
+
+        # POS_P2 pressure
+        p_post = d["estimates"]["p_recon_post_p2"]
+        cc_p_post = (
+                p_post[:, 0] * cc[0] ** 2
+                + p_post[:, 1] * cc[0] * cc[1]
+                + p_post[:, 2] * cc[0]
+                + p_post[:, 3] * cc[1] ** 2
+                + p_post[:, 4] * cc[1]
+                + p_post[:, 5]
         )
+        pp.plot_grid(sd, cc_p_post, plot_2d=True, linewidth=0, title="POSTP P2")
 
 
 class Geometry(porepy.models.geometry.ModelGeometry):
@@ -382,6 +481,12 @@ class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
 
     """
 
+    plot_errors: Callable
+    """Method to plot errors of the verification setup. Usually provided by the
+    mixin class :class:`SetupUtilities`.
+
+    """
+
     postprocess_solution: Callable
     """Postprocess solutions to reconstruct potentials and compute errors. Method 
     provided by the mixin class :class:`Postprocessing`.
@@ -431,9 +536,9 @@ class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
 
         # Declare permeability matrix.
         nc = sd.num_cells
-        kxx = 7.7500 * np.ones(nc)
-        kyy = 3.2500 * np.ones(nc)
-        kxy = 3.8971 * np.ones(nc)
+        kxx = np.ones(nc)  # 7.7500
+        kyy = np.ones(nc)  # 3.2500
+        kxy = 0 * np.ones(nc)  # 3.8971
 
         d[pp.PARAMETERS][kw]["second_order_tensor"] = pp.SecondOrderTensor(
             kxx=kxx,
@@ -458,6 +563,9 @@ class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
         # Plot solutions
         if self.params.get("plot_results", False):
             self.plot_results()
+        # Plot errors
+        if self.params.get("plot_errors", False):
+            self.plot_errors()
 
     def _is_nonlinear_problem(self) -> bool:
         """The problem is linear."""

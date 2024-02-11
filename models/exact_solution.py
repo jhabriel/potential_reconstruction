@@ -15,10 +15,10 @@ class ExactSolution:
 
         # Symbolic variables
         x, y = sym.symbols("x y")
-        K_xx = 7.7500
-        K_xy = 3.8971
+        K_xx = 1  # 7.7500
+        K_xy = 0  # 3.8971
         K_yx = K_xy
-        K_yy = 3.2500
+        K_yy = 1  # 3.2500
 
         # Pressure
         p = sym.cos(2 * sym.pi * x) * sym.cos(2 * sym.pi * y)
@@ -127,7 +127,7 @@ class ExactSolution:
         f_fun = sym.lambdify((x, y), self.f, "numpy")
 
         # Declare integration method and get hold of elements in QuadPy format
-        int_method = quadpy.t2.get_good_scheme(15)
+        int_method = quadpy.t2.get_good_scheme(10)
         elements = amr.utils.get_quadpy_elements(sd)
 
         # Declare integrand
