@@ -32,7 +32,7 @@ for mesh_type in mesh_types:
     convergence_analysis = ConvergenceAnalysis(
         model_class=ManufacturedModel,
         model_params=params,
-        levels=4,
+        levels=6,
         spatial_refinement_rate=2,
     )
     list_of_results = convergence_analysis.run_analysis()
