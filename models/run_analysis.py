@@ -1,15 +1,13 @@
 import porepy as pp
 import numpy as np
-import matplotlib.pyplot as plt
-
 from porepy.applications.convergence_analysis import ConvergenceAnalysis
 from model import ManufacturedModel,  manu_incomp_fluid, manu_incomp_solid
 
 mesh_types = [
-    # "regular_structured",
-    # "irregular_structured",
+    "regular_structured",
+    "irregular_structured",
     "unstructured",
-    #"perturbed_unstructured"
+    "perturbed_unstructured"
 ]
 
 for mesh_type in mesh_types:
@@ -20,12 +18,12 @@ for mesh_type in mesh_types:
     material_constants = {"solid": solid, "fluid": fluid}
     params = {
         "material_constants": material_constants,
-        "plot_results": False,
-        "plot_errors": False,
         "dim": 2,
         "domain_size": np.array([1.0, 1.0]),
         "mesh_type": mesh_type,
         "meshing_arguments": {"cell_size": 0.1},
+        #"pressure_solution": "trigonometric",
+        #"permeability": np.array([[7.7500, 3.8971], [3.8971, 3.2500]]),
     }
 
     # Run convergence analysis

@@ -129,7 +129,7 @@ class Postprocessing:
 
         # Exact pressure and pressure gradients
         x, y = sym.symbols("x y")
-        ex = ExactSolution()
+        ex = ExactSolution(self)
         p = ex.p
         p_fun = sym.lambdify((x, y), p, "numpy")
         gradp = [sym.diff(ex.p, x), sym.diff(ex.p, y)]
@@ -198,17 +198,17 @@ class Postprocessing:
 class SaveData:
     """Data class to save relevant results from the verification setup."""
 
-    error_l2_avg: float
-    """Error in the L2 broken norm obtained with average of cell-centered potentials."""
+    # error_l2_avg: float
+    # """Error in the L2 broken norm obtained with average of cell-centered potentials."""
+    #
+    # error_l2_rt0: float
+    # """Error in the L2 broken norm obtained with RT0-based reconstruction."""
+    #
+    # error_l2_neu: float
+    # """Error in the L2 broken norm obtained by solving a local Neumann problem."""
 
-    error_l2_rt0: float
-    """Error in the L2 broken norm obtained with RT0-based reconstruction."""
-
-    error_l2_neu: float
-    """Error in the L2 broken norm obtained by solving a local Neumann problem."""
-
-    error_l2_postp: float
-    """Error in the L2 broken norm for the post-processed potential."""
+    # error_l2_postp: float
+    # """Error in the L2 broken norm for the post-processed potential."""
 
     error_h1_avg: float
     """Error in the H1 broken norm obtained with average of cell-centered potentials."""
@@ -219,14 +219,9 @@ class SaveData:
     error_h1_neu: float
     """Error in the H1 broken norm obtained by solving a local Neumann problem."""
 
-    error_h1_postp: float
-    """Error in the H1 broken norm for the post-processed potential."""
+    # error_h1_postp: float
+    # """Error in the H1 broken norm for the post-processed potential."""
 
-    # error_l2_avg: float
-    # """Error in the L2 norm obtained with average of cell-centered potentials."""
-    #
-    # error_l2_rt0: float
-    # """Error in the L2 norm obtained with RT0-based reconstruction."""
 
 
 class DataSaving(VerificationDataSaving):
@@ -248,11 +243,11 @@ class DataSaving(VerificationDataSaving):
             error_h1_rt0=d["estimates"]["error_h1_rt0_p1"],
             error_h1_avg=d["estimates"]["error_h1_avg_p1"],
             error_h1_neu=d["estimates"]["error_h1_neu_p2"],
-            error_h1_postp=d["estimates"]["error_h1_post_p2"],
-            error_l2_rt0=d["estimates"]["error_l2_rt0_p1"],
-            error_l2_avg=d["estimates"]["error_l2_avg_p1"],
-            error_l2_neu=d["estimates"]["error_l2_neu_p2"],
-            error_l2_postp=d["estimates"]["error_l2_post_p2"],
+            # error_h1_postp=d["estimates"]["error_h1_post_p2"],
+            # error_l2_rt0=d["estimates"]["error_l2_rt0_p1"],
+            # error_l2_avg=d["estimates"]["error_l2_avg_p1"],
+            # error_l2_neu=d["estimates"]["error_l2_neu_p2"],
+            # error_l2_postp=d["estimates"]["error_l2_post_p2"],
         )
 
         return collected_data
@@ -523,7 +518,7 @@ class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
         assert self.fluid.compressibility() == 0
 
         # Instantiate exact solution object after materials have been set
-        self.exact_sol = ExactSolution()
+        self.exact_sol = ExactSolution(self)
 
     def set_discretization_parameters(self) -> None:
         """Set anisotropic permeability"""
@@ -534,16 +529,18 @@ class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
         d = self.mdg.subdomain_data(sd)
         kw = self.darcy_keyword
 
-        # Declare permeability matrix.
-        nc = sd.num_cells
-        kxx = np.ones(nc)  # 7.7500
-        kyy = np.ones(nc)  # 3.2500
-        kxy = 0 * np.ones(nc)  # 3.8971
+        # Declare permeability matrix. Identity by default.
+        perm = self.params.get("permeability", np.eye(2))
+        perm_xx = perm[0][0]
+        perm_xy = perm[0][1]
+        perm_yx = perm[1][0]
+        perm_yy = perm[1][1]
+        assert perm_xy == perm_yx, "Permeability matrix not symmetric."
 
         d[pp.PARAMETERS][kw]["second_order_tensor"] = pp.SecondOrderTensor(
-            kxx=kxx,
-            kyy=kyy,
-            kxy=kxy,
+            kxx=perm_xx * np.ones(sd.num_cells),
+            kyy=perm_yy * np.ones(sd.num_cells),
+            kxy=perm_xy * np.ones(sd.num_cells),
         )
 
     def after_nonlinear_convergence(
@@ -590,23 +587,3 @@ class ManufacturedModel(  # type: ignore[misc]
     """
     Mixer class for the 2d incompressible flow setup with a single fracture.
     """
-
-
-# %% Runner
-# solid_constants = pp.SolidConstants(manu_incomp_solid)
-# fluid_constants = pp.FluidConstants(manu_incomp_fluid)
-# material_constants = {"solid": solid_constants, "fluid": fluid_constants}
-# params = {
-#     "material_constants": material_constants,
-#     "plot_results": False,
-#     "mesh_size": 0.05,
-#     "dim": 2,
-#     "domain_size": np.array([1.0, 1.0]),
-#     "mesh_type": "perturbed_unstructured",
-# }
-# model = ManufacturedModel(params=params)
-# pp.run_time_dependent_model(model, {})
-#
-# # %% Analysis
-# sd = model.mdg.subdomains()[0]
-# d = model.mdg.subdomain_data(sd)

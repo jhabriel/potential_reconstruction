@@ -10,18 +10,27 @@ import sympy as sym
 class ExactSolution:
     """Class containing the exact manufactured solution."""
 
-    def __init__(self):
+    def __init__(self, model):
         """Constructor of the class."""
+
+        # Physical parameters
+        perm = model.params.get("permeability", np.eye(2))
 
         # Symbolic variables
         x, y = sym.symbols("x y")
-        K_xx = 1  # 7.7500
-        K_xy = 0  # 3.8971
-        K_yx = K_xy
-        K_yy = 1  # 3.2500
+        K_xx = perm[0][0]
+        K_xy = perm[0][1]
+        K_yx = perm[1][0]
+        K_yy = perm[1][1]
 
         # Pressure
-        p = sym.cos(2 * sym.pi * x) * sym.cos(2 * sym.pi * y)
+        pressure_solution = model.params.get("pressure_solution", "parabolic")
+        if pressure_solution == "parabolic":
+            p = x * (1 - x) * y * (1 - y)
+        elif pressure_solution == "trigonometric":
+            p = sym.cos(2 * sym.pi * x) * sym.cos(2 * sym.pi * y)
+        else:
+            raise NotImplementedError()
 
         # Pressure gradient
         gradp_x = sym.diff(p, x)
