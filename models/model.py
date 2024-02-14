@@ -262,6 +262,12 @@ class Utils(VerificationUtils):
     results: list[SaveData]
     """List of ManuIncompSaveData objects."""
 
+    def save_grid(self) -> None:
+        """Save computational grid."""
+        name = self.params.get("mesh_type", "Triangular Grid")
+        sd = self.mdg.subdomains()[0]
+        pp.save_img(name, sd, alpha=0.75, plot_2d=True)
+
     def plot_results(self) -> None:
         """Plotting results."""
         self._plot_pressure()
@@ -285,7 +291,7 @@ class Utils(VerificationUtils):
         sd = self.mdg.subdomains()[0]
         d = self.mdg.subdomain_data(sd)
         cc = sd.cell_centers
-        ex = ExactSolution()
+        ex = ExactSolution(self)
 
         # Exact pressure
         p_ex = ex.pressure(sd)
@@ -488,6 +494,9 @@ class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
     
     """
 
+    save_grid: Callable
+    """Whether to save the computational grid."""
+
     solid: pp.SolidConstants
     """Object containing the solid constants."""
 
@@ -563,6 +572,9 @@ class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
         # Plot errors
         if self.params.get("plot_errors", False):
             self.plot_errors()
+        # Save grid
+        if self.params.get("save_grid", False):
+            self.save_grid()
 
     def _is_nonlinear_problem(self) -> bool:
         """The problem is linear."""

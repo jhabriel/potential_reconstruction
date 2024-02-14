@@ -22,8 +22,10 @@ for mesh_type in mesh_types:
         "domain_size": np.array([1.0, 1.0]),
         "mesh_type": mesh_type,
         "meshing_arguments": {"cell_size": 0.1},
-        #"pressure_solution": "trigonometric",
-        #"permeability": np.array([[7.7500, 3.8971], [3.8971, 3.2500]]),
+        "plot_results": False,
+        "save_grid": False,
+        "pressure_solution": "trigonometric",
+        "permeability": np.array([[7.7500, 3.8971], [3.8971, 3.2500]]),
     }
 
     # Run convergence analysis
