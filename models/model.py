@@ -118,14 +118,52 @@ class Postprocessing:
         )
 
     def compute_errors(self) -> None:
-        """Compute errors for the different reconstruction schemes."""
+        self._compute_errors_p0()
+        self._compute_errors_p1()
+        self._compute_errors_p2()
+
+    def _compute_errors_p0(self) -> None:
+
+        # Retrieve subdomain and data
+        sd = self.mdg.subdomains()[0]
+        d = self.mdg.subdomain_data(sd)
+
+        # Exact pressure and pressure gradients
+        x, y = sym.symbols("x y")
+        ex = ExactSolution(self)
+        p = ex.p
+        p_fun = sym.lambdify((x, y), p, "numpy")
+        gradp = [sym.diff(ex.p, x), sym.diff(ex.p, y)]
+        gradp_fun = [sym.lambdify((x, y), grad, "numpy") for grad in gradp]
+
+        # Obtain elements and declare integration method
+        method = quadpy.t2.get_good_scheme(10)
+        elements = mdamr.utils.get_quadpy_elements(sd)
+
+        # Retrieve cell-centered solution
+        pcc = d["estimates"]["fv_sd_pressure"]
+        pcc = np.reshape(pcc, (sd.num_cells, 1))
+
+        def integrand_l2_error(x):
+            # Exact pressure
+            p_exact = p_fun(x[0], x[1])
+            # Reconstructed pressures
+            ones = np.ones_like(x[0])
+            p_num = pcc * ones
+            return (p_exact - p_num) ** 2
+
+        integral = method.integrate(integrand_l2_error, elements)
+        d["estimates"]["local_error_l2_p0"] = integral
+        d["estimates"]["error_l2_p0"] = integral.sum() ** 0.5
+
+    def _compute_errors_p1(self) -> None:
 
         # Retrieve subdomain and data
         sd = self.mdg.subdomains()[0]
         d = self.mdg.subdomain_data(sd)
 
         # Potential reconstruction methods
-        reconstructions = ["avg_p1", "rt0_p1", "neu_p2", "post_p2"]
+        reconstructions = ["avg_p1", "rt0_p1"]
 
         # Exact pressure and pressure gradients
         x, y = sym.symbols("x y")
@@ -152,14 +190,8 @@ class Postprocessing:
 
                 # Reconstructed pressure gradient in x and y
                 ones = np.ones_like(x[0])
-                if reconstruction in ["avg_p1", "rt0_p1"]:  # P1(K) methods
-                    gradp_recon_x = pr[0] * ones
-                    gradp_recon_y = pr[1] * ones
-                elif reconstruction in ["neu_p2", "post_p2"]:  # P2(K) methods
-                    gradp_recon_x = 2 * pr[0] * x[0] + pr[1] * x[1] + pr[2] * ones
-                    gradp_recon_y = pr[1] * x[0] + 2 * pr[3] * x[1] + pr[4] * ones
-                else:
-                    raise NotImplementedError()
+                gradp_recon_x = pr[0] * ones
+                gradp_recon_y = pr[1] * ones
 
                 # Integral in x and y
                 int_x = (gradp_exact_x - gradp_recon_x) ** 2
@@ -176,17 +208,75 @@ class Postprocessing:
                 p_exact = p_fun(x[0], x[1])
                 # Reconstructed pressures
                 ones = np.ones_like(x[0])
-                if reconstruction in ["avg_p1", "rt0_p1"]:  # P1(K) methods
-                    p_recon = pr[0] * x[0] + pr[1] * x[1] + pr[2] * ones
-                elif reconstruction in ["neu_p2", "post_p2"]:  # P2(K) methods
-                    p_recon = (
-                        pr[0] * x[0] ** 2
-                        + pr[1] * x[0] * x[1]
-                        + pr[2] * x[0]
-                        + pr[3] * x[1] ** 2
-                        + pr[4] * x[1]
-                        + pr[5]
-                    )
+                p_recon = pr[0] * x[0] + pr[1] * x[1] + pr[2] * ones
+
+                return (p_exact - p_recon) ** 2
+
+            integral = method.integrate(integrand_l2_error, elements)
+            d["estimates"]["local_error_l2_" + reconstruction] = integral
+            d["estimates"]["error_l2_" + reconstruction] = integral.sum() ** 0.5
+
+    def _compute_errors_p2(self) -> None:
+
+        # Retrieve subdomain and data
+        sd = self.mdg.subdomains()[0]
+        d = self.mdg.subdomain_data(sd)
+
+        # Potential reconstruction methods
+        reconstructions = ["neu_p2", "post_p2"]
+
+        # Exact pressure and pressure gradients
+        x, y = sym.symbols("x y")
+        ex = ExactSolution(self)
+        p = ex.p
+        p_fun = sym.lambdify((x, y), p, "numpy")
+        gradp = [sym.diff(ex.p, x), sym.diff(ex.p, y)]
+        gradp_fun = [sym.lambdify((x, y), grad, "numpy") for grad in gradp]
+
+        # Obtain elements and declare integration method
+        method = quadpy.t2.get_good_scheme(10)
+        elements = mdamr.utils.get_quadpy_elements(sd)
+
+        for reconstruction in reconstructions:
+
+            # Retrieve reconstructed pressures
+            recon_p = d["estimates"]["p_recon_" + reconstruction]
+            pr = mdamr.utils.poly2col(recon_p)
+
+            def integrand_h1_error(x):
+                # Exact pressure gradient in x and y
+                gradp_exact_x = gradp_fun[0](x[0], x[1])
+                gradp_exact_y = gradp_fun[1](x[0], x[1])
+
+                # Reconstructed pressure gradient in x and y
+                ones = np.ones_like(x[0])
+                gradp_recon_x = 2 * pr[0] * x[0] + pr[1] * x[1] + pr[2] * ones
+                gradp_recon_y = pr[1] * x[0] + 2 * pr[3] * x[1] + pr[4] * ones
+
+                # Integral in x and y
+                int_x = (gradp_exact_x - gradp_recon_x) ** 2
+                int_y = (gradp_exact_y - gradp_recon_y) ** 2
+
+                return int_x + int_y
+
+            integral = method.integrate(integrand_h1_error, elements)
+            d["estimates"]["local_error_h1_" + reconstruction] = integral
+            d["estimates"]["error_h1_" + reconstruction] = integral.sum() ** 0.5
+
+            def integrand_l2_error(x):
+                # Exact pressure
+                p_exact = p_fun(x[0], x[1])
+                # Reconstructed pressures
+                ones = np.ones_like(x[0])
+                p_recon = (
+                    pr[0] * x[0] ** 2
+                    + pr[1] * x[0] * x[1]
+                    + pr[2] * x[0]
+                    + pr[3] * x[1] ** 2
+                    + pr[4] * x[1]
+                    + pr[5]
+                )
+
                 return (p_exact - p_recon) ** 2
 
             integral = method.integrate(integrand_l2_error, elements)
@@ -198,17 +288,20 @@ class Postprocessing:
 class SaveData:
     """Data class to save relevant results from the verification setup."""
 
-    # error_l2_avg: float
-    # """Error in the L2 broken norm obtained with average of cell-centered potentials."""
-    #
-    # error_l2_rt0: float
-    # """Error in the L2 broken norm obtained with RT0-based reconstruction."""
-    #
-    # error_l2_neu: float
-    # """Error in the L2 broken norm obtained by solving a local Neumann problem."""
+    error_l2_p0: float
+    """Error in the L2 broken norm for the P0-CCFVM solution."""
 
-    # error_l2_postp: float
-    # """Error in the L2 broken norm for the post-processed potential."""
+    error_l2_avg: float
+    """Error in the L2 broken norm obtained with average of cell-centered potentials."""
+
+    error_l2_rt0: float
+    """Error in the L2 broken norm obtained with RT0-based reconstruction."""
+
+    error_l2_neu: float
+    """Error in the L2 broken norm obtained by solving a local Neumann problem."""
+
+    error_l2_postp: float
+    """Error in the L2 broken norm for the post-processed potential."""
 
     error_h1_avg: float
     """Error in the H1 broken norm obtained with average of cell-centered potentials."""
@@ -219,9 +312,8 @@ class SaveData:
     error_h1_neu: float
     """Error in the H1 broken norm obtained by solving a local Neumann problem."""
 
-    # error_h1_postp: float
-    # """Error in the H1 broken norm for the post-processed potential."""
-
+    error_h1_postp: float
+    """Error in the H1 broken norm for the post-processed potential."""
 
 
 class DataSaving(VerificationDataSaving):
@@ -243,11 +335,12 @@ class DataSaving(VerificationDataSaving):
             error_h1_rt0=d["estimates"]["error_h1_rt0_p1"],
             error_h1_avg=d["estimates"]["error_h1_avg_p1"],
             error_h1_neu=d["estimates"]["error_h1_neu_p2"],
-            # error_h1_postp=d["estimates"]["error_h1_post_p2"],
-            # error_l2_rt0=d["estimates"]["error_l2_rt0_p1"],
-            # error_l2_avg=d["estimates"]["error_l2_avg_p1"],
-            # error_l2_neu=d["estimates"]["error_l2_neu_p2"],
-            # error_l2_postp=d["estimates"]["error_l2_post_p2"],
+            error_h1_postp=d["estimates"]["error_h1_post_p2"],
+            error_l2_p0=d["estimates"]["error_l2_p0"],
+            error_l2_rt0=d["estimates"]["error_l2_rt0_p1"],
+            error_l2_avg=d["estimates"]["error_l2_avg_p1"],
+            error_l2_neu=d["estimates"]["error_l2_neu_p2"],
+            error_l2_postp=d["estimates"]["error_l2_post_p2"],
         )
 
         return collected_data

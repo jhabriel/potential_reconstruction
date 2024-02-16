@@ -21,18 +21,18 @@ for mesh_type in mesh_types:
         "dim": 2,
         "domain_size": np.array([1.0, 1.0]),
         "mesh_type": mesh_type,
-        "meshing_arguments": {"cell_size": 0.1},
+        "meshing_arguments": {"cell_size": 0.2},
         "plot_results": False,
         "save_grid": False,
-        "pressure_solution": "trigonometric",
-        "permeability": np.array([[7.7500, 3.8971], [3.8971, 3.2500]]),
+        #"pressure_solution": "parabolic",
+        # "permeability": np.array([[7.7500, 3.8971], [3.8971, 3.2500]]),
     }
 
     # Run convergence analysis
     convergence_analysis = ConvergenceAnalysis(
         model_class=ManufacturedModel,
         model_params=params,
-        levels=6,
+        levels=5,
         spatial_refinement_rate=2,
     )
     list_of_results = convergence_analysis.run_analysis()
