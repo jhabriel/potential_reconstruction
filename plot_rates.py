@@ -1,6 +1,5 @@
 """Module that generates the convergence plots."""
-
-# %% Import modules and convergence plot class
+import os
 from convergence_plot import ConvergencePlot
 
 input_files = [
@@ -14,13 +13,17 @@ input_files = [
     "error_perturbed_unstructured_trig",
 ]
 
+# Create plots folder if it does not exist
+if not os.path.exists("plots"):
+    os.makedirs("plots")
+
 for input_file in input_files:
 
     # ----> Uncomment these lines to plot L2 convergence rates
     # # L2 convergence
     # l2_conv_plot = ConvergencePlot(
-    #     input_file_name=input_file,
-    #     output_file_name=input_file + "_l2",
+    #     input_file_name="errors/" + input_file,
+    #     output_file_name="plots/" + input_file + "_l2",
     #     variables_to_plot=[
     #         ("error_l2_p0", "P0"),
     #         ("error_l2_rt0", "P1-RT0-BASED"),
@@ -37,8 +40,8 @@ for input_file in input_files:
 
     # H1 convergence
     h1_conv_plot = ConvergencePlot(
-        input_file_name=input_file,
-        output_file_name=input_file + "_h1",
+        input_file_name="errors/" + input_file,
+        output_file_name="plots/" + input_file + "_h1",
         variables_to_plot=[
             ("error_h1_rt0", "P1-RT0-BASED"),
             ("error_h1_avg", "P1-CC-AVG"),
