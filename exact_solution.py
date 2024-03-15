@@ -1,10 +1,10 @@
 """Module containing the exact solution."""
-
-import mdamr as amr
 import numpy as np
 import porepy as pp
 import quadpy
 import sympy as sym
+
+from utils import get_quadpy_elements
 
 
 class ExactSolution:
@@ -137,7 +137,7 @@ class ExactSolution:
 
         # Declare integration method and get hold of elements in QuadPy format
         int_method = quadpy.t2.get_good_scheme(10)
-        elements = amr.utils.get_quadpy_elements(sd)
+        elements = get_quadpy_elements(sd)
 
         # Declare integrand
         def integrand(x):

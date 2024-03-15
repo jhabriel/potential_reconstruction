@@ -1,6 +1,4 @@
 """Module containing functionality for plotting convergence analysis."""
-from __future__ import annotations
-
 import numpy as np
 import matplotlib.figure
 import matplotlib.colors as mcolors

@@ -8,21 +8,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-import mdamr
 import numpy as np
 import porepy as pp
 import porepy.models.geometry
 import quadpy
 import sympy as sym
-from mdamr.estimates.pressure_reconstruction import (
-    keilegavlen_p1, patchwise_p1, vohralik_p2
-)
+from potential_recon import keilegavlen_p1, patchwise_p1, vohralik_p2
 from porepy.fracs.fracture_network_3d import FractureNetwork3d
 from porepy.utils.examples_utils import VerificationUtils
 from porepy.viz.data_saving_model_mixin import VerificationDataSaving
 
 from exact_solution import ExactSolution
 from grids import MeshGenerator
+from utils import get_quadpy_elements, interpolate_p1, interpolate_p2, poly2col
 
 # PorePy typings
 number = pp.number
@@ -101,21 +99,15 @@ class Postprocessing:
 
         # Method 1: Cochez-Dhondt
         point_val, point_coo = patchwise_p1(sd, sd_data, bg_data)
-        sd_data["estimates"]["p_recon_avg_p1"] = mdamr.utils.interpolate_p1(
-            point_val, point_coo
-        )
+        sd_data["estimates"]["p_recon_avg_p1"] = interpolate_p1(point_val, point_coo)
 
         # Method 2: Keilegavlen-Varela
         point_val, point_coo = keilegavlen_p1(sd, sd_data, bg_data)
-        sd_data["estimates"]["p_recon_rt0_p1"] = mdamr.utils.interpolate_p1(
-            point_val, point_coo
-        )
+        sd_data["estimates"]["p_recon_rt0_p1"] = interpolate_p1(point_val, point_coo)
 
         # Method 3: Vohralik-Ern
         point_val, point_coo = vohralik_p2(sd, sd_data, bg_data)
-        sd_data["estimates"]["p_recon_neu_p2"] = (
-            mdamr.utils.interpolate_p2(point_val, point_coo)
-        )
+        sd_data["estimates"]["p_recon_neu_p2"] = interpolate_p2(point_val, point_coo)
 
     def compute_errors(self) -> None:
         self._compute_errors_p0()
@@ -138,7 +130,7 @@ class Postprocessing:
 
         # Obtain elements and declare integration method
         method = quadpy.t2.get_good_scheme(10)
-        elements = mdamr.utils.get_quadpy_elements(sd)
+        elements = get_quadpy_elements(sd)
 
         # Retrieve cell-centered solution
         pcc = d["estimates"]["fv_sd_pressure"]
@@ -175,13 +167,13 @@ class Postprocessing:
 
         # Obtain elements and declare integration method
         method = quadpy.t2.get_good_scheme(10)
-        elements = mdamr.utils.get_quadpy_elements(sd)
+        elements = get_quadpy_elements(sd)
 
         for reconstruction in reconstructions:
 
             # Retrieve reconstructed pressures
             recon_p = d["estimates"]["p_recon_" + reconstruction]
-            pr = mdamr.utils.poly2col(recon_p)
+            pr = poly2col(recon_p)
 
             def integrand_h1_error(x):
                 # Exact pressure gradient in x and y
@@ -235,13 +227,13 @@ class Postprocessing:
 
         # Obtain elements and declare integration method
         method = quadpy.t2.get_good_scheme(4)
-        elements = mdamr.utils.get_quadpy_elements(sd)
+        elements = get_quadpy_elements(sd)
 
         for reconstruction in reconstructions:
 
             # Retrieve reconstructed pressures
             recon_p = d["estimates"]["p_recon_" + reconstruction]
-            pr = mdamr.utils.poly2col(recon_p)
+            pr = poly2col(recon_p)
 
             def integrand_h1_error(x):
                 # Exact pressure gradient in x and y
