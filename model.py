@@ -14,6 +14,7 @@ import porepy.models.geometry
 import quadpy
 import sympy as sym
 from potential_recon import keilegavlen_p1, patchwise_p1, vohralik_p2
+from flux_extension import extend_fv_fluxes
 from porepy.fracs.fracture_network_3d import FractureNetwork3d
 from porepy.utils.examples_utils import VerificationUtils
 from porepy.viz.data_saving_model_mixin import VerificationDataSaving
@@ -21,6 +22,7 @@ from porepy.viz.data_saving_model_mixin import VerificationDataSaving
 from exact_solution import ExactSolution
 from grids import MeshGenerator
 from utils import get_quadpy_elements, interpolate_p1, interpolate_p2, poly2col
+
 
 # PorePy typings
 number = pp.number
@@ -84,7 +86,7 @@ class Postprocessing:
 
     def extend_normal_fluxes(self) -> None:
         """Extend FV fluxes using RT0-basis functions."""
-        mdamr.extend_fv_fluxes(self.mdg)
+        extend_fv_fluxes(self.mdg)
 
     def reconstruct_potentials(self) -> None:
         """Reconstruct potentials using three different techniques."""
