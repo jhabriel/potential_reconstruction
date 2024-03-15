@@ -1,4 +1,4 @@
-# potential_reconstruction
+# A linear potential reconstruction technique for cell-centered finite volume methods
 
 This repository contains the necessary files to reproduce the results from: *A 
 linear potential reconstruction technique based on Raviart-Thomas basis functions 
@@ -16,12 +16,12 @@ To reproduce the results, you will need `Porepy` (commit 10674a7) and `quadpy`
 To reproduce the results, you should run the file `run_analysis.py`. This will 
 create several `txt` files inside a (newly created) `errors` folder. 
 
-If you wish to generate the convergence plots, you can now run the file `plot_rates.
-py`. This will create several `PDF` files inside a (newly created) `plots` folder.
+If you wish to generate the convergence plots, you can now run the file `plot_rates.py`.
+This will create several `PDF` files inside a (newly created) `plots` folder.
 
 ## Citing
 
-If you use (either all or a part of) this code present in this repository, we ask 
+If you use (either all or a part of) the code present in this repository, we ask 
 you to cite:
 
 *TODO: Add reference*
