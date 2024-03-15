@@ -32,6 +32,7 @@ class ConvergencePlot:
         log_base: Optional[int] = None,
     ):
         # Input file
+
         self.input_file: str = input_file_name + "." + input_format
 
         # Output file
@@ -127,7 +128,7 @@ class ConvergencePlot:
                 - ...
 
         """
-        fig, ax = plt.subplots(1, 2, gridspec_kw={"width_ratios": [3, 2]})
+        fig, ax = plt.subplots(1, 2, gridspec_kw={"width_ratios": [1, 2]})
         return fig, ax
 
     def _define_color_palette(self) -> mcolors.ListedColormap:
@@ -217,7 +218,7 @@ class ConvergencePlot:
         """
         x0 = self._log_n(1 / self._x_values[0])
         x1 = self._log_n(1 / self._x_values[-1])
-        y0 = -1  # Modify this value according to your plot
+        y0 = -1  # -9 for parabolic and -1 for trigonometric
         y1 = y0 - (x1 - x0)
         # Plot line
         axes[0].plot(
@@ -282,7 +283,7 @@ class ConvergencePlot:
         else:
             axes[0].set_xlabel(rf"$\log_{self._log_base}$($1/\tau$)", fontsize=16)
         # Set y-label
-        axes[0].set_ylabel(rf"$\log_{self._log_base}$(error)", fontsize=16)
+        axes[0].set_ylabel(rf"$\log_{self._log_base}(\varepsilon)$", fontsize=16)
 
     def _plot_rate(
         self,
@@ -341,7 +342,7 @@ class ConvergencePlot:
     def _legend(self, axes) -> None:
         """Include the legend in the right subplot."""
         axes[1].legend(
-            bbox_to_anchor=(0.85, 0.5),  # this most-likely requires tweaking
+            bbox_to_anchor=(1.05, 0.5),  # this most-likely requires tweaking
             loc="center right",
             fontsize=16,
         )

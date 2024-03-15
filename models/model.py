@@ -234,7 +234,7 @@ class Postprocessing:
         gradp_fun = [sym.lambdify((x, y), grad, "numpy") for grad in gradp]
 
         # Obtain elements and declare integration method
-        method = quadpy.t2.get_good_scheme(10)
+        method = quadpy.t2.get_good_scheme(4)
         elements = mdamr.utils.get_quadpy_elements(sd)
 
         for reconstruction in reconstructions:
@@ -360,6 +360,16 @@ class Utils(VerificationUtils):
         name = self.params.get("mesh_type", "Triangular Grid")
         sd = self.mdg.subdomains()[0]
         pp.save_img(name, sd, alpha=0.75, plot_2d=True)
+
+    def save_exact_pressure(self) -> None:
+        """Save exact pressure"""
+        sd = self.mdg.subdomains()[0]
+        p_ex = ExactSolution(self).pressure(sd)
+        if self.params.get("pressure_solution", "parabolic"):
+            name = "para_p.pdf"
+        else:
+            name = "trigo_p.pdf"
+        pp.save_img(name, sd, p_ex, title="", linewidth=0, plot_2d=True)
 
     def plot_results(self) -> None:
         """Plotting results."""
@@ -587,6 +597,9 @@ class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
     
     """
 
+    save_exact_pressure: Callable
+    """Whether to save the exact pressure distribution."""
+
     save_grid: Callable
     """Whether to save the computational grid."""
 
@@ -668,6 +681,9 @@ class SolutionStrategy(pp.fluid_mass_balance.SolutionStrategySinglePhaseFlow):
         # Save grid
         if self.params.get("save_grid", False):
             self.save_grid()
+        # Save exact pressure
+        if self.params.get("save_exact_pressure", False):
+            self.save_exact_pressure()
 
     def _is_nonlinear_problem(self) -> bool:
         """The problem is linear."""
