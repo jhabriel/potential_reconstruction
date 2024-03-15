@@ -1,5 +1,6 @@
 import porepy as pp
 import numpy as np
+import os
 from porepy.applications.convergence_analysis import ConvergenceAnalysis
 from model import ManufacturedModel,  manu_incomp_fluid, manu_incomp_solid
 
@@ -39,7 +40,6 @@ for sol, perm in zip(solutions, permeability):
             "pressure_solution": sol,
             "permeability": perm,
         }
-
         # Run convergence analysis
         convergence_analysis = ConvergenceAnalysis(
             model_class=ManufacturedModel,
@@ -48,9 +48,11 @@ for sol, perm in zip(solutions, permeability):
             spatial_refinement_rate=2,
         )
         list_of_results = convergence_analysis.run_analysis()
+        if not os.path.exists("errors"):
+            os.makedirs("errors")
         convergence_analysis.export_errors_to_txt(
             list_of_results=list_of_results,
-            file_name=f"error_{mesh_type}_{sol[:4]}.txt"
+            file_name=f"errors/error_{mesh_type}_{sol[:4]}.txt"
         )
         order_of_convergence = convergence_analysis.order_of_convergence(
             list_of_results=list_of_results,
