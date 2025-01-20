@@ -1,10 +1,6 @@
 # A linear potential reconstruction technique for cell-centered finite volume methods
 
-This repository contains the necessary files to reproduce the results from: *A 
-linear potential reconstruction technique based on Raviart-Thomas basis functions 
-for cell-centered finite volume approximations to the Darcy problem* by J. Varela, C.
-E. Schaerer and E. Keilegavlen, submitted to the Proceeding Series of the Brazilian 
-Society of Computational and Applied Mathematics, 2024.
+This repository contains the necessary files to reproduce the results from [1].
 
 ## Requirements
 
@@ -22,6 +18,8 @@ This will create several `PDF` files inside a (newly created) `plots` folder.
 ## Citing
 
 If you use (either all or a part of) the code present in this repository, we ask 
-you to cite:
+you to cite [1].
 
-*TODO: Add reference*
+## References
+
+[1] **Varela, J., Schaerer, C. E., & Keilegavlen., E.** (2025). *A linear potential reconstruction technique based on Raviart-Thomas basis functions for cell-centered finite volume approximations to the Darcy problem*. Proceeding Series of the Brazilian Society of Computational and Applied Mathematics, *11*(1). DOI: [10.5540/03.2025.011.01.0332](https://doi.org/10.5540/03.2025.011.01.0332)
